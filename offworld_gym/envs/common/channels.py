@@ -12,11 +12,12 @@
 # distributed under the License is distributed on an "AS IS" basis,
 # without warranties or conditions of any kind, express or implied.
 
+from enum import Enum
 from offworld_gym import version
 
-__version__     = version.__version__
+__version__ = version.__version__
 
-from enum import Enum
+
 class Channels(Enum):
     """Channel Types of the camera
     """
