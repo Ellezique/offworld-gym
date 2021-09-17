@@ -20,6 +20,7 @@ from termcolor import colored
 from gym.utils import seeding
 from google.protobuf.empty_pb2 import Empty
 from offworld_gym.envs.common.channels import Channels
+from PIL import Image
 
 from offworld_gym.envs.gazebo_docker.protobuf.remote_env_pb2 import Action, Observation, ObservationRewardDoneInfo, \
     Spaces, Image, Seed
@@ -30,7 +31,8 @@ logger = logging.getLogger(__name__)
 # logger.setLevel(level)
 
 
-OFFWORLD_GYM_DOCKER_IMAGE = os.environ.get("OFFWORLD_GYM_DOCKER_IMAGE", "offworldai/offworld-gym")
+OFFWORLD_GYM_DOCKER_IMAGE = os.environ.get(
+    "OFFWORLD_GYM_DOCKER_IMAGE", "offworldai/offworld-gym")
 
 CONTAINER_INTERNAL_GRPC_PORT = 7676
 CONTAINER_INTERNAL_GRPC_PORT_BINDING = f'{CONTAINER_INTERNAL_GRPC_PORT}/tcp'
@@ -77,29 +79,34 @@ def _heart_beat_to_container_worker(grpc_port, weak_ref_to_parent_env):
     grpc_stub = RemoteEnvStub(channel)
     ever_made_successful_hearbeat = False
     hb_loop_start_time = time.time()
-    attempts = 0 
+    attempts = 0
     while attempts < 3:
-        logger.debug(f"\n Attempts to call client heartbeat service {attempts} times.")
+        #logger.debug(f"\n Attempts to call client heartbeat service {attempts} times.")
         if weak_ref_to_parent_env() is None:
             # exit if parent env is garbage collected or otherwise deleted
-            logger.debug("heartbeat thread exiting after parent env was destroyed.")
+            logger.debug(
+                "heartbeat thread exiting after parent env was destroyed.")
             return
         try:
-            before = time.time() 
-            grpc_stub.HeartBeat(Empty(), timeout=3.0) 
-            logger.debug(f"heartbeat interval : {time.time() - before}")
+            before = time.time()
+            grpc_stub.HeartBeat(Empty(), timeout=3.0)
+            # logger.debug(f"heartbeat interval : {time.time() - before}")
             ever_made_successful_hearbeat = True
-            if ever_made_successful_hearbeat: attempts = 0
+            if ever_made_successful_hearbeat:
+                attempts = 0
         except grpc.RpcError as rpc_error:
             attempts += 1
             time_in_hb_loop = time.time() - hb_loop_start_time
             if ever_made_successful_hearbeat and attempts > 2:
-                logger.debug(f"heartbeat thread exiting after catching grpc error:\n{rpc_error}")
+                logger.debug(
+                    f"heartbeat thread exiting after catching grpc error:\n{rpc_error}")
                 # print client side message here, in case next clause does not meet
-                print(f"No heartbeat from the client in {time.time() - before} seconds, killing the server.")
+                print(
+                    f"No heartbeat from the client in {time.time() - before} seconds, killing the server.")
                 return
             elif time_in_hb_loop > MAX_TOLERABLE_HANG_TIME_SECONDS and attempts > 2:
-                logger.debug(f"heartbeat thread exiting after taking too long ({time_in_hb_loop} seconds) without successfully sending a single first hearbeat. Latest heartbeat grpc error: {rpc_error}")
+                logger.debug(
+                    f"heartbeat thread exiting after taking too long ({time_in_hb_loop} seconds) without successfully sending a single first hearbeat. Latest heartbeat grpc error: {rpc_error}")
                 return
         time.sleep(HEART_BEAT_TO_CONTAINER_INTERVAL_SECONDS)
 
@@ -121,8 +128,8 @@ class OffWorldDockerizedEnv(gym.Env):
             subprocess.check_output(['bash', '-c', xhost_command])
         except subprocess.CalledProcessError:
             logger.warning(f"The bash command \"{xhost_command}\" failed. "
-                        f"Installing \'xhost\' may be required for OffWorldDockerizedEnv to render properly. "
-                        f"Further issues may be caused by this.")
+                           f"Installing \'xhost\' may be required for OffWorldDockerizedEnv to render properly. "
+                           f"Further issues may be caused by this.")
 
         # Set up 'docker run' command to launch gazebo env in a container
         self._launch_docker_instance()
@@ -155,7 +162,8 @@ class OffWorldDockerizedEnv(gym.Env):
             container_volumes_str += f" -v {k}:{v['bind']}:{v['mode']}"
 
         container_ports = {
-            CONTAINER_INTERNAL_GRPC_PORT_BINDING: None,  # will be published to a random available host port
+            # will be published to a random available host port
+            CONTAINER_INTERNAL_GRPC_PORT_BINDING: None,
             CONTAINER_INTERNAL_GAZEBO_PORT_BINDING: None,
             CONTAINER_INTERNAL_GAZEBO_WEB_PORT_BINDING: None,
         }
@@ -173,14 +181,16 @@ class OffWorldDockerizedEnv(gym.Env):
                              f"{container_env_str}{container_volumes_str}{container_ports_str} " \
                              f"{OFFWORLD_GYM_DOCKER_IMAGE} {container_entrypoint}"
         logger.debug(f"Docker run command is:\n{docker_run_command}\n")
-        container_id = subprocess.check_output(["/bin/bash", "-c", docker_run_command]).decode("utf-8").strip()
+        container_id = subprocess.check_output(
+            ["/bin/bash", "-c", docker_run_command]).decode("utf-8").strip()
 
         # ensure cleanup at exit
         def kill_container_if_it_still_exists():
             try:
                 # bash command kills the container if it exists, otherwise return error code 1 without printing an error
                 kill_command = f"docker ps -q --filter \"id={container_id}\" | grep -q . && docker kill {container_id}"
-                removed_container = subprocess.check_output(['bash', '-c', kill_command]).decode("utf-8").strip()
+                removed_container = subprocess.check_output(
+                    ['bash', '-c', kill_command]).decode("utf-8").strip()
                 print(f"Cleaned up container {removed_container}")
             except subprocess.CalledProcessError:
                 pass
@@ -188,17 +198,23 @@ class OffWorldDockerizedEnv(gym.Env):
         atexit.register(kill_container_if_it_still_exists)
 
         logger.info(f"container_id is {container_id}")
-        self._container_instance = self._docker_client.containers.get(container_id=container_id)
+        self._container_instance = self._docker_client.containers.get(
+            container_id=container_id)
         logger.debug(f"{self._container_instance.name} launched")
-        host_published_grpc_port = self._container_instance.ports[CONTAINER_INTERNAL_GRPC_PORT_BINDING][0]['HostPort']
-        host_published_gazebo_port = self._container_instance.ports[CONTAINER_INTERNAL_GAZEBO_PORT_BINDING][0]['HostPort']
-        host_published_gazebo_web_port = self._container_instance.ports[CONTAINER_INTERNAL_GAZEBO_WEB_PORT_BINDING][0]['HostPort']
+        host_published_grpc_port = self._container_instance.ports[
+            CONTAINER_INTERNAL_GRPC_PORT_BINDING][0]['HostPort']
+        host_published_gazebo_port = self._container_instance.ports[
+            CONTAINER_INTERNAL_GAZEBO_PORT_BINDING][0]['HostPort']
+        host_published_gazebo_web_port = self._container_instance.ports[
+            CONTAINER_INTERNAL_GAZEBO_WEB_PORT_BINDING][0]['HostPort']
         logger.debug(f"host gazebo port is {host_published_gazebo_port}")
-        logger.info(colored(f"For visualization of simulation, visit gzweb server at http://{socket.gethostbyname(socket.gethostname())}:{host_published_gazebo_web_port}", "green"))
+        logger.info(colored(
+            f"\n\nFor visualization of simulation, visit gzweb server at:\n\nhttp://{socket.gethostbyname(socket.gethostname())}:{host_published_gazebo_web_port}\n\n", "green"))
         logger.debug(f"Connecting on GRPC port: {host_published_grpc_port}")
 
         # open a gRPC channel
-        channel = grpc.insecure_channel(f'localhost:{host_published_grpc_port}')
+        channel = grpc.insecure_channel(
+            f'localhost:{host_published_grpc_port}')
         self._grpc_stub = RemoteEnvStub(channel)
 
         # Assure that the time this method returns, the docker env is fully initialized.
@@ -209,24 +225,27 @@ class OffWorldDockerizedEnv(gym.Env):
         while not connected:
             time.sleep(0.1)
             try:
-                spaces_response: Spaces = self._grpc_stub.GetSpaces(Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
+                spaces_response: Spaces = self._grpc_stub.GetSpaces(
+                    Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
                 connected = True
             except grpc.RpcError as rpc_error:
                 if rpc_error.code() != grpc.StatusCode.UNAVAILABLE or \
                         time.time() - connection_attempt_start_time > MAX_TOLERABLE_HANG_TIME_SECONDS:
-                    print("The docker instance launched but the GRPC server couldn't be connected to.")
+                    print(
+                        "The docker instance launched but the GRPC server couldn't be connected to.")
                     raise
 
-        self.observation_space = cloudpickle.loads(spaces_response.observation_space)
+        self.observation_space = cloudpickle.loads(
+            spaces_response.observation_space)
         self.action_space = cloudpickle.loads(spaces_response.action_space)
-        
-        #_np_random is None when it is dumped using cloudpickle in the container. Cloudpickle ignores the None variables(maybe) when dumping.
+
+        # _np_random is None when it is dumped using cloudpickle in the container. Cloudpickle ignores the None variables(maybe) when dumping.
         # after loading from the dump, here we define the variable _np_random again.
         self.observation_space._np_random = None
         self.action_space._np_random = None
 
         self._heart_beat_thread = threading.Thread(target=_heart_beat_to_container_worker,
-                                             args=(host_published_grpc_port, weakref.ref(self)))
+                                                   args=(host_published_grpc_port, weakref.ref(self)))
         self._heart_beat_thread.daemon = True
         self._heart_beat_thread.start()
 
@@ -241,14 +260,16 @@ class OffWorldDockerizedEnv(gym.Env):
 
     def reset(self):
 
-        reset_response: Observation = self._grpc_stub.Reset(Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
+        reset_response: Observation = self._grpc_stub.Reset(
+            Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
         observation = np.asarray(cloudpickle.loads(reset_response.observation))
         return observation
 
     def step(self, action):
         request = Action()
         request.action = cloudpickle.dumps(np.asarray(action))
-        step_response: ObservationRewardDoneInfo = self._grpc_stub.Step(request, timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
+        step_response: ObservationRewardDoneInfo = self._grpc_stub.Step(
+            request, timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
         observation = np.asarray(cloudpickle.loads(step_response.observation))
         reward = float(step_response.reward)
         done = bool(step_response.done)
@@ -256,7 +277,8 @@ class OffWorldDockerizedEnv(gym.Env):
         return observation, reward, done, info
 
     def render(self, mode='human'):
-        render_response: Image = self._grpc_stub.Render(Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
+        render_response: Image = self._grpc_stub.Render(
+            Empty(), timeout=MAX_TOLERABLE_HANG_TIME_SECONDS)
         env_image = np.asarray(cloudpickle.loads(render_response.image))[0]
         if mode == 'human':
             if not self._cv2_windows_need_destroy_on_close:
@@ -273,12 +295,19 @@ class OffWorldDockerizedEnv(gym.Env):
                 images_to_show.append(('rgb', rgb_image))
                 images_to_show.append(('depth', depth_image))
             else:
-                raise NotImplementedError(f"Unknown Channel type for rendering: {self._config['channel_type']}")
+                raise NotImplementedError(
+                    f"Unknown Channel type for rendering: {self._config['channel_type']}")
 
             for image_name, image in images_to_show:
-                cv2.imshow(f"{self._container_instance.name} {image_name}", image)
-            cv2.waitKey(1)
+                # imsave(image)
+                #                cv2.imshow(
+                #                    f"{self._container_instance.name} {image_name}", image)
+                #                print(image)
+                cv2.imwrite(figure_file_name('file_'), image)
+                #            cv2.waitKey(1)
         elif mode == 'array':
+            return env_image
+        elif mode == 'rgb_array':
             return env_image
         else:
             raise NotImplementedError(mode)
@@ -292,20 +321,34 @@ class OffWorldDockerizedEnv(gym.Env):
 
     def close(self):
         self._clean_up_docker_instance()
-        if self._cv2_windows_need_destroy_on_close:
-            cv2.destroyAllWindows()
+#        if self._cv2_windows_need_destroy_on_close:
+#            cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-    env = gym.make("OffWorldDockerMonolithDiscreteSim-v0", channel_type=Channels.RGBD)
-    logger.info(f"action space: {env.action_space} observation_space: {env.observation_space}")
+    env = gym.make("OffWorldDockerMonolithDiscreteSim-v0",
+                   channel_type=Channels.RGBD)
+    logger.info(
+        f"action space: {env.action_space} observation_space: {env.observation_space}")
     while True:
         obs = env.reset()
         done = False
         while not done:
             sampled_action = env.action_space.sample()
-            #env.render()
+            # env.render()
             print(sampled_action)
             obs, rew, done, info = env.step(sampled_action)
+
+
+def imsave(imagearray):
+    im = Image.fromarray(np.array(imagearray, dtype=np.uint8))
+    im.save(figure_file_name('file_'))
+
+#My function to save figures and import datetime ##########################################################
+
+
+def figure_file_name(file_prefix):
+    # return './figures/' + file_prefix + '_' + datetime.now().strftime("%Y%m%d_%H%M%S") + '.png'
+    return '/root/robot/offworld-gym/figures/' + file_prefix + '.png'
